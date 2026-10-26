@@ -318,15 +318,18 @@ public class CustomerNotFoundExceptionMapper implements ExceptionMapper<Customer
 
 ### 2.3 Endpoint design rules
 
+Paths carry the version prefix (see the versioning rule below) and `X` is the resource
+noun — e.g. the example's `findCustomer(id)` maps to `GET /api/v1/customers/{id}`:
+
 | EJB method shape | REST mapping |
 |---|---|
-| `findX(id)` | `GET /xs/{id}` |
-| `searchX(filter)` | `GET /xs?filter=...` |
-| `createX(dto)` | `POST /xs` → `201 Created` + `Location` header |
-| `updateX(id, dto)` | `PUT /xs/{id}` (full) or `PATCH` (partial) |
-| `deleteX(id)` | `DELETE /xs/{id}` → `204 No Content` |
-| Command-style operation (`activateX(id)`) | `POST /xs/{id}/activation` (model as sub-resource of a noun) |
-| `@Asynchronous` method (`Future<T> startX(id)`) | `POST /xs/{id}/jobs` → `202 Accepted` + status URL; consumer polls `GET /xs/{id}/jobs/{jobId}` or receives a callback (§5.7) |
+| `findX(id)` | `GET /api/v1/X/{id}` |
+| `searchX(filter)` | `GET /api/v1/X?filter=...` |
+| `createX(dto)` | `POST /api/v1/X` → `201 Created` + `Location` header |
+| `updateX(id, dto)` | `PUT /api/v1/X/{id}` (full) or `PATCH` (partial) |
+| `deleteX(id)` | `DELETE /api/v1/X/{id}` → `204 No Content` |
+| Command-style operation (`activateX(id)`) | `POST /api/v1/X/{id}/activation` (model as sub-resource of a noun) |
+| `@Asynchronous` method (`Future<T> startX(id)`) | `POST /api/v1/X/{id}/jobs` → `202 Accepted` + status URL; consumer polls `GET /api/v1/X/{id}/jobs/{jobId}` or receives a callback (§5.7) |
 
 Rules:
 
@@ -334,7 +337,7 @@ Rules:
 - **Idempotency**: `GET`, `PUT`, `DELETE` must be idempotent. If the EJB method is not idempotent (e.g., retry may double-charge), map it to `POST` and consider an `Idempotency-Key` header.
 - **Optimistic locking**: if the EJB used version checks (e.g. `@Version` on entities), expose them as an `ETag` on `GET` responses and require `If-Match` on `PUT`/`PATCH`/`DELETE`; a failed version check becomes `412 Precondition Failed` (or `409` — pick one and document it, §5.3).
 - **Version the API** from day one: `/api/v1/...`. Plan for v2 now: introduce it as a new path (or parallel deployment) next to v1, mark retiring v1 operations with `Deprecation`/`Sunset` headers, and notify consumer teams in advance — never change a published operation in place.
-- **Paginate** list endpoints that can return large result sets (`GET /xs?filter=...&page=0&size=50`) — a remote EJB call returning everything was already questionable; over REST it becomes a payload-size problem (§5.5).
+- **Paginate** list endpoints that can return large result sets (`GET /api/v1/X?filter=...&page=0&size=50`) — a remote EJB call returning everything was already questionable; over REST it becomes a payload-size problem (§5.5).
 - Keep the remote DTO classes, but make them JSON-friendly: default constructor, public getters/setters, no `javax.persistence.*` lazy fields leaking into serialization. If the DTOs are shared types inside entity classes, introduce dedicated REST DTOs.
 - **Bean Validation**: annotate resource method parameters with `@Valid` (and the DTOs with constraint annotations) so argument checks fail fast with an automatic `400` — the cheap replacement for the boundary checks the remote EJB enforced.
 - **Binary and large payloads**: for files and large blobs, decide per endpoint between Base64-in-JSON (simple, ~33% size overhead) and `multipart/form-data` or a `StreamingOutput` download (efficient, more client work). Don't ship blobs through JSON DTOs by default.
@@ -875,7 +878,7 @@ SOAP (JAX-WS) variant: if the SOAP endpoints used **WS-Security** (signature, en
 
 ### 5.5 Performance
 
-- REST + JSON per-call overhead is higher than binary remoting: batch endpoints (`GET /xs?ids=1,2,3`) where the EJB was called in a loop
+- REST + JSON per-call overhead is higher than binary remoting: batch endpoints (`GET /api/v1/X?ids=1,2,3`) where the EJB was called in a loop
 - Enable HTTP keep-alive/connection pooling
 - Watch payload size — trim DTOs to what consumers actually use
 
@@ -895,7 +898,7 @@ Cleanup note: remove the `iiop-configuration` (and, where unused, the `jacorb`/`
 
 `@Asynchronous` methods returning `Future<T>`/`CompletionStage<T>` have no direct synchronous REST equivalent — do not let the consumer block indefinitely waiting for the HTTP response. Options:
 
-- **202 Accepted + status resource** (preferred): `POST /xs/{id}/jobs` returns `202` with a status URL; the consumer polls `GET /xs/{id}/jobs/{jobId}` (consider a `Retry-After` header) until it sees a terminal state. Store job state in the provider's database.
+- **202 Accepted + status resource** (preferred): `POST /api/v1/X/{id}/jobs` returns `202` with a status URL; the consumer polls `GET /api/v1/X/{id}/jobs/{jobId}` (consider a `Retry-After` header) until it sees a terminal state. Store job state in the provider's database.
 - **Callback/webhook**: the provider calls a REST endpoint on the consumer when done. Simpler for the consumer than polling, but requires the consumer to expose an endpoint and the provider to handle callback failures and retries.
 - **Synchronous with a timeout**: if the operation is short, a blocking endpoint with a generous server-side timeout is acceptable — but then treat it like any non-idempotent POST (§2.3, `Idempotency-Key`).
 
